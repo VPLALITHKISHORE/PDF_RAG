@@ -1,6 +1,6 @@
 # app/ingestion/chunker.py
 
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from app.config import CHUNK_SIZE, CHUNK_OVERLAP
 
 

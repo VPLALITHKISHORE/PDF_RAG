@@ -2,7 +2,7 @@
 
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from langchain.schema import Document
+from langchain_core.documents import Document
 from unstructured.partition.pdf import partition_pdf
 from app.config import MAX_WORKERS
 

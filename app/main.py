@@ -10,42 +10,69 @@ from app.retrieval.retriever import query
 import os
 
 
-def build_index():
-    print("Loading PDFs...")
+def index_exists(path: str) -> bool:
+    """Check if FAISS index files exist"""
+    return os.path.exists(os.path.join(path, "index.faiss")) and \
+           os.path.exists(os.path.join(path, "index.pkl"))
+
+
+def build_index(embeddings):
+    print("\n🚀 [STEP 1] Loading PDFs...")
     docs = load_pdfs_parallel(PDF_FOLDER)
 
-    print("Chunking...")
+    print(f"✅ Loaded {len(docs)} documents")
+
+    print("\n🚀 [STEP 2] Chunking...")
     chunks = chunk_documents(docs)
 
-    print("Embedding...")
-    embeddings = get_embeddings()
+    print(f"✅ Created {len(chunks)} chunks")
 
-    print("Creating FAISS index...")
+    print("\n🚀 [STEP 3] Creating FAISS index...")
     vectorstore = create_index(chunks, embeddings)
 
-    print("Saving index...")
+    print("\n🚀 [STEP 4] Saving index...")
     save_index(vectorstore, FAISS_PATH)
 
+    print("✅ Index created successfully!\n")
 
-def ask_question():
-    embeddings = get_embeddings()
-    vectorstore = load_index(FAISS_PATH, embeddings)
+
+def ask_question(embeddings):
+    print("\n⚡ Loading FAISS index...")
+    vectorstore = load_index(embeddings, FAISS_PATH)
+    print("✅ Ready for queries!\n")
 
     while True:
-        q = input("\nAsk: ")
+        q = input("💬 Ask (type 'exit' to quit): ")
+
         if q.lower() == "exit":
+            print("👋 Exiting...")
             break
 
         results = query(vectorstore, q)
 
+        if not results:
+            print("❌ No relevant results found.")
+            continue
+
         for i, res in enumerate(results):
             print(f"\n--- Result {i+1} ---")
-            print("Source:", res["metadata"])
-            print("Text:", res["text"][:300])
+            print("📄 Source:", res.get("metadata", "N/A"))
+            print("📝 Text:", res.get("text", "")[:300])
 
 
 if __name__ == "__main__":
-    if not os.path.exists(FAISS_PATH):
-        build_index()
+    print("🔧 Initializing embeddings...")
+    embeddings = get_embeddings()
 
-    ask_question()
+    try:
+        if not index_exists(FAISS_PATH):
+            print("⚠️ FAISS index not found. Building new index...")
+            build_index(embeddings)
+        else:
+            print("✅ Existing FAISS index found.")
+
+        ask_question(embeddings)
+
+    except Exception as e:
+        print(f"\n❌ Error occurred: {e}")
+        print("💡 Try deleting the FAISS folder and rebuilding.")

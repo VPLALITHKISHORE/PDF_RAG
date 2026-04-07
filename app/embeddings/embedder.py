@@ -1,10 +1,8 @@
 # app/embeddings/embedder.py
 
-from langchain.embeddings import HuggingFaceEmbeddings
-from app.config import EMBEDDING_MODEL
-
+from langchain_community.embeddings import HuggingFaceEmbeddings
 
 def get_embeddings():
     return HuggingFaceEmbeddings(
-        model_name=EMBEDDING_MODEL
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
     )
