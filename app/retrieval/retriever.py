@@ -11,7 +11,7 @@ def get_retriever(vectorstore):
 
 def query(vectorstore, question):
     retriever = get_retriever(vectorstore)
-    docs = retriever.get_relevant_documents(question)
+    docs = retriever.invoke(question)
 
     results = []
     for doc in docs:
