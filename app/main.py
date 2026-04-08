@@ -1,78 +1,86 @@
-# app/main.py
-
-from app.config import PDF_FOLDER, FAISS_PATH
-from app.ingestion.loader import load_pdfs_parallel
-from app.ingestion.chunker import chunk_documents
-from app.embeddings.embedder import get_embeddings
-from app.vectorstore.faiss_store import create_index, save_index, load_index
-from app.retrieval.retriever import query
-
 import os
+from app.config import *
+from app.ingestion.loader import load_pdf_stream
+from app.ingestion.chunker import chunk_text
+from app.embeddings.embedder import embed_batch
+from app.vectorstore.faiss_store import create_or_load_index, add_to_index, save_index
+from app.retrieval.retriever import retrieve
+from app.llm.chat import generate_answer
+from app.utils.tracker import load_processed_files, save_processed_files
 
 
-def index_exists(path: str) -> bool:
-    """Check if FAISS index files exist"""
-    return os.path.exists(os.path.join(path, "index.faiss")) and \
-           os.path.exists(os.path.join(path, "index.pkl"))
+def update_index():
+    print("⚡ Checking for new PDFs...")
+
+        processed_files = load_processed_files(TRACKER_PATH)
+
+            all_files = [f for f in os.listdir(PDF_FOLDER) if f.endswith(".pdf")]
+                new_files = [f for f in all_files if f not in processed_files]
+
+                    if not new_files:
+                            print("✅ No new PDFs found.")
+                                    return
+
+                                        print("📄 New files:", new_files)
+
+                                            index, metadata = create_or_load_index(FAISS_PATH, METADATA_PATH)
+
+                                                batch_texts = []
+                                                    batch_meta = []
+
+                                                        for file in new_files:
+                                                                file_path = os.path.join(PDF_FOLDER, file)
+
+                                                                        print(f"🚀 Processing {file}")
+
+                                                                                for page in load_pdf_stream(file_path):
+                                                                                            for chunk in chunk_text(page["text"], CHUNK_SIZE, CHUNK_OVERLAP):
+
+                                                                                                            batch_texts.append(chunk)
+                                                                                                                            batch_meta.append({
+                                                                                                                                                "text": chunk,
+                                                                                                                                                                    "metadata": page["metadata"]
+                                                                                                                                                                                    })
+
+                                                                                                                                                                                                    if len(batch_texts) >= BATCH_SIZE:
+                                                                                                                                                                                                                        embeddings = embed_batch(batch_texts)
+
+                                                                                                                                                                                                                                            index = add_to_index(index, embeddings)
+                                                                                                                                                                                                                                                                metadata.extend(batch_meta)
+
+                                                                                                                                                                                                                                                                                    batch_texts, batch_meta = [], []
+
+                                                                                                                                                                                                                                                                                            processed_files.add(file)
+
+                                                                                                                                                                                                                                                                                                if batch_texts:
+                                                                                                                                                                                                                                                                                                        embeddings = embed_batch(batch_texts)
+                                                                                                                                                                                                                                                                                                                index = add_to_index(index, embeddings)
+                                                                                                                                                                                                                                                                                                                        metadata.extend(batch_meta)
+
+                                                                                                                                                                                                                                                                                                                            save_index(index, metadata, FAISS_PATH, METADATA_PATH)
+                                                                                                                                                                                                                                                                                                                                save_processed_files(TRACKER_PATH, processed_files)
+
+                                                                                                                                                                                                                                                                                                                                    print("✅ Index updated successfully!")
 
 
-def build_index(embeddings):
-    print("\n🚀 [STEP 1] Loading PDFs...")
-    docs = load_pdfs_parallel(PDF_FOLDER)
+                                                                                                                                                                                                                                                                                                                                    def chat_loop():
+                                                                                                                                                                                                                                                                                                                                        index, metadata = create_or_load_index(FAISS_PATH, METADATA_PATH)
 
-    print(f"✅ Loaded {len(docs)} documents")
+                                                                                                                                                                                                                                                                                                                                            if index is None:
+                                                                                                                                                                                                                                                                                                                                                    print("❌ No index found. Add PDFs first.")
+                                                                                                                                                                                                                                                                                                                                                            return
 
-    print("\n🚀 [STEP 2] Chunking...")
-    chunks = chunk_documents(docs)
+                                                                                                                                                                                                                                                                                                                                                                while True:
+                                                                                                                                                                                                                                                                                                                                                                        q = input("\n💬 Ask: ")
+                                                                                                                                                                                                                                                                                                                                                                                if q.lower() == "exit":
+                                                                                                                                                                                                                                                                                                                                                                                            break
 
-    print(f"✅ Created {len(chunks)} chunks")
+                                                                                                                                                                                                                                                                                                                                                                                                    docs = retrieve(q, index, metadata)
+                                                                                                                                                                                                                                                                                                                                                                                                            answer = generate_answer(q, docs)
 
-    print("\n🚀 [STEP 3] Creating FAISS index...")
-    vectorstore = create_index(chunks, embeddings)
-
-    print("\n🚀 [STEP 4] Saving index...")
-    save_index(vectorstore, FAISS_PATH)
-
-    print("✅ Index created successfully!\n")
+                                                                                                                                                                                                                                                                                                                                                                                                                    print("\n🤖 Answer:\n", answer)
 
 
-def ask_question(embeddings):
-    print("\n⚡ Loading FAISS index...")
-    vectorstore = load_index(embeddings, FAISS_PATH)
-    print("✅ Ready for queries!\n")
-
-    while True:
-        q = input("💬 Ask (type 'exit' to quit): ")
-
-        if q.lower() == "exit":
-            print("👋 Exiting...")
-            break
-
-        results = query(vectorstore, q)
-
-        if not results:
-            print("❌ No relevant results found.")
-            continue
-
-        for i, res in enumerate(results):
-            print(f"\n--- Result {i+1} ---")
-            print("📄 Source:", res.get("metadata", "N/A"))
-            print("📝 Text:", res.get("text", "")[:300])
-
-
-if __name__ == "__main__":
-    print("🔧 Initializing embeddings...")
-    embeddings = get_embeddings()
-
-    try:
-        if not index_exists(FAISS_PATH):
-            print("⚠️ FAISS index not found. Building new index...")
-            build_index(embeddings)
-        else:
-            print("✅ Existing FAISS index found.")
-
-        ask_question(embeddings)
-
-    except Exception as e:
-        print(f"\n❌ Error occurred: {e}")
-        print("💡 Try deleting the FAISS folder and rebuilding.")
+                                                                                                                                                                                                                                                                                                                                                                                                                    if __name__ == "__main__":
+                                                                                                                                                                                                                                                                                                                                                                                                                        update_index()
+                                                                                                                                                                                                                                                                                                                                                                                                                            chat_loop()
